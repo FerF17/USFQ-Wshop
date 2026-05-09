@@ -63,17 +63,20 @@ class AntColonyOptimization:
                     current_position = next_position
                 all_paths.append(path)
 
-            # Escoger el mejor camino por su tamaño?
-            # --------------------------
-            all_paths.sort(key=lambda x: len(x))
-            best_path = all_paths[0]
+            # FIX: el camino "mejor" debe (1) llegar al destino y (2) ser el más corto.
+            valid_paths = [p for p in all_paths if p[-1] == self.end]
+            if not valid_paths:
+                self._evaporate_pheromones()
+                continue
+
+            valid_paths.sort(key=lambda x: len(x))
+            best_path = valid_paths[0]
 
             self._evaporate_pheromones()
             self._deposit_pheromones(best_path)
 
-            if self.best_path is None or len(best_path) <= len(self.best_path):
+            if self.best_path is None or len(best_path) < len(self.best_path):
                 self.best_path = best_path
-            # --------------------------
 
     def plot(self):
         cmap = LinearSegmentedColormap.from_list('pheromone', ['white', 'green', 'red'])
@@ -110,15 +113,69 @@ def study_case_2():
     start = (0, 0)
     end = (4, 7)
     obstacles = [(0, 2), (1, 2), (2, 2), (3, 2)]
-    aco = AntColonyOptimization(start, end, obstacles)
-    aco.find_best_path(100)
+    # Más hormigas, evaporación más alta y mayor peso de la heurística para
+    # rodear la pared horizontal en y=2.
+    aco = AntColonyOptimization(
+        start, end, obstacles,
+        num_ants=30, evaporation_rate=0.3, alpha=1.0, beta=5.0,
+    )
+    aco.find_best_path(200)
     aco.plot()
     print("End of Ant Colony Optimization")
     print("Best path: ", aco.best_path)
 
+
+def random_search(start, end, obstacles, n_trials=20, num_iterations=100, seed=42):
+    """Random Search de hiperparámetros para ACO.
+
+    Devuelve la mejor configuración encontrada (la que produce el camino válido
+    más corto). Si una configuración no encuentra un camino, se descarta.
+    """
+    rng = np.random.default_rng(seed)
+    search_space = {
+        "num_ants":         lambda: int(rng.integers(5, 51)),       # [5, 50]
+        "evaporation_rate": lambda: float(rng.uniform(0.05, 0.7)),
+        "alpha":            lambda: float(rng.uniform(0.1, 3.0)),
+        "beta":             lambda: float(rng.uniform(1.0, 15.0)),
+    }
+
+    best = {"length": np.inf, "params": None, "path": None}
+    for trial in range(n_trials):
+        params = {k: v() for k, v in search_space.items()}
+        aco = AntColonyOptimization(start, end, obstacles, **params)
+        aco.find_best_path(num_iterations)
+        if aco.best_path is None or aco.best_path[-1] != end:
+            print(f"[trial {trial:02d}] sin solución | params={params}")
+            continue
+        length = len(aco.best_path)
+        print(f"[trial {trial:02d}] len={length:3d} | params={params}")
+        if length < best["length"]:
+            best = {"length": length, "params": params, "path": aco.best_path}
+
+    print("\nMejor configuración encontrada:")
+    print(f"  longitud = {best['length']}")
+    print(f"  params   = {best['params']}")
+    return best
+
+
+def study_case_2_tuned():
+    print("Random Search sobre el caso 2")
+    start, end = (0, 0), (4, 7)
+    obstacles = [(0, 2), (1, 2), (2, 2), (3, 2)]
+    best = random_search(start, end, obstacles, n_trials=15, num_iterations=120)
+    if best["params"] is None:
+        print("Random Search no encontró solución.")
+        return
+    aco = AntColonyOptimization(start, end, obstacles, **best["params"])
+    aco.find_best_path(200)
+    aco.plot()
+    print("Best path:", aco.best_path)
+
+
 if __name__ == '__main__':
     study_case_1()
-    # study_case_2()
+    study_case_2()
+    # study_case_2_tuned()  # Descomentar para correr Random Search
 
 
 
